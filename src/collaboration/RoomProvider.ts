@@ -1,5 +1,18 @@
 import * as Y from "yjs";
 
+import {
+    Awareness,
+    applyAwarenessUpdate,
+    encodeAwarenessUpdate,
+} from "y-protocols/awareness.js";
+
+import {
+    MESSAGE_AWARENESS_UPDATE,
+    MESSAGE_DOCUMENT_UPDATE,
+    decodeBinaryMessage,
+    encodeBinaryMessage,
+} from "../../shared/protocol";
+
 export type RoomConnectionStatus =
     | "Connecting"
     | "Syncing"
@@ -17,6 +30,11 @@ interface ServerMessage {
     connections?: number;
 }
 
+export interface RoomUser {
+    name: string,
+    color: string;
+}
+
 export class RoomProvider {
     private socket: WebSocket | null = null;
     private pendingUpdates: Uint8Array[] = [];
@@ -24,6 +42,7 @@ export class RoomProvider {
     private readonly roomId: string;
     private readonly document: Y.Doc;
     private readonly options: RoomProviderOptions;
+    public readonly awareness: Awareness;
 
     constructor(
         roomId: string,
@@ -38,9 +57,16 @@ export class RoomProvider {
             throw new Error(`Invalid Room ID: ${roomId}`);
         }
 
+        this.awareness = new Awareness(document);
+
         this.document.on(
             "update",
             this.handleDocumentUpdate,
+        );
+
+        this.awareness.on(
+            "update",
+            this.handleAwarenessUpdate,
         );
     }
 
@@ -75,12 +101,23 @@ export class RoomProvider {
         socket.addEventListener("error", this.handleSocketError);
     }
 
+    setUser(
+        user: RoomUser,
+    ): void {
+        this.awareness.setLocalStateField(
+            "user",
+            user,
+        );
+    }
+
     destroy(): void {
         if (this.flushTimer !== null) {
             window.clearTimeout(this.flushTimer);
             this.flushTimer = null;
             this.flushPendingUpdates();
         }
+
+        this.awareness.setLocalState(null);
 
         this.document.off(
             "update",
@@ -107,6 +144,8 @@ export class RoomProvider {
             this.handleSocketError,
         );
 
+        this.awareness.destroy();
+
         this.socket?.close();
         this.socket = null;
     }
@@ -115,6 +154,7 @@ export class RoomProvider {
     (): void => {
         this.options.onStatusChange?.("Syncing");
         this.flushPendingUpdates();
+        this.sendLocalAwareness();
     };
 
     private readonly handleSocketClose =
@@ -142,6 +182,33 @@ export class RoomProvider {
         this.scheduleFlush();
     };
 
+    private readonly handleAwarenessUpdate = (
+        changes: {
+            added: number[];
+            updated: number[];
+            removed: number[];
+        },
+        origin: unknown,
+    ): void => {
+        if (origin === this) {
+            return;
+        }
+
+        const clientIds = [
+            ...changes.added,
+            ...changes.updated,
+            ...changes.removed,
+        ];
+
+        if (clientIds.length === 0) {
+            return;
+        }
+
+        const update = encodeAwarenessUpdate(this.awareness, clientIds);
+
+        this.sendAwarenessUpdate(update);
+    }
+
     private readonly handleSocketMessage = (
         event: MessageEvent,
     ): void => {
@@ -151,13 +218,27 @@ export class RoomProvider {
             return;
         }
 
-        // Binary message is Yjs update
-        if (event.data instanceof ArrayBuffer) {
-            const update = new Uint8Array(event.data);
+        // Binary message only
+        if (!(event.data instanceof ArrayBuffer)) {
+            return;
+        }
 
+        const message = decodeBinaryMessage(event.data);
+
+        if (!message) {
+            return;
+        }
+
+        if (message.type === MESSAGE_DOCUMENT_UPDATE) {
             Y.applyUpdate(
                 this.document,
-                update,
+                message.payload,
+                this,
+            );
+        } else if (message.type === MESSAGE_AWARENESS_UPDATE) {
+            applyAwarenessUpdate(
+                this.awareness,
+                message.payload,
                 this,
             );
         }
@@ -180,7 +261,39 @@ export class RoomProvider {
 
         if (message.type === "synced") {
             this.options.onStatusChange?.("Connected");
+            return;
         }
+
+        // New user joins, let them know who exists
+        if (message.type === "awareness-request") {
+            this.sendLocalAwareness();
+        }
+    }
+
+    private sendLocalAwareness(): void {
+        const update = encodeAwarenessUpdate(
+            this.awareness,
+            [
+                this.awareness.clientID,
+            ],
+        );
+
+        this.sendAwarenessUpdate(update);
+    }
+
+    private sendAwarenessUpdate(
+        update: Uint8Array,
+    ): void {
+        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+            return;
+        }
+
+        this.socket.send(
+            encodeBinaryMessage(
+                MESSAGE_AWARENESS_UPDATE,
+                update,
+            )
+        );
     }
 
     private scheduleFlush(): void {
@@ -210,15 +323,11 @@ export class RoomProvider {
 
         this.pendingUpdates = [];
 
-        this.socket.send(this.toArrayBuffer(update));
-    }
-
-    private toArrayBuffer(
-        value: Uint8Array,
-    ): ArrayBuffer {
-        const buffer = new ArrayBuffer(value.byteLength);
-        const view = new Uint8Array(buffer);
-        view.set(value);
-        return buffer;
+        this.socket.send(
+            encodeBinaryMessage(
+                MESSAGE_DOCUMENT_UPDATE,
+                update,
+            )
+        );
     }
 }

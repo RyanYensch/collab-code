@@ -5,6 +5,24 @@ import { RoomProvider, type RoomConnectionStatus } from "./collaboration/RoomPro
 import { CODE_TEXT_KEY, STARTER_CODE } from "../shared/editor";
 import "./app.css";
 
+interface ActiveUser {
+  clientId: number;
+  name: string;
+  color: string;
+  local: boolean;
+}
+
+const USER_COLORS = [
+  "#e57373",
+  "#64b5f6",
+  "#81c784",
+  "#ba68c8",
+  "#ffb74d",
+  "#4dd0e1",
+  "#f06292",
+  "#aed581",
+];
+
 function getInitialRoomId(): string {
   const params = new URLSearchParams(
     window.location.search,
@@ -19,32 +37,96 @@ function getInitialRoomId(): string {
   return "test";
 }
 
+function createTemporaryUser (
+  clientId: number,
+) {
+  return {
+    name: `Guest ${clientId % 10000}`,
+    color: USER_COLORS[clientId % USER_COLORS.length]
+  };
+}
+
 
 export function App() {
   const [roomId] = useState(getInitialRoomId);
   const [document] = useState(() => new Y.Doc());
   const [status, setStatus] = useState<RoomConnectionStatus>("Connecting");
   const [connections, setConnections] = useState(0);
-  const code = document.getText(CODE_TEXT_KEY);
-
-  // New provider on room id or document change
-  useEffect(() => {
-    const provider = new RoomProvider(
+  const [provider] = useState(
+    () => new RoomProvider(
       roomId,
       document,
       {
         onStatusChange: setStatus,
-        onConnectionsChange: setConnections,
+        onConnectionsChange: setConnections
       },
-    );
+    ),
+  );
+  const [user] = useState(() => createTemporaryUser(document.clientID));
+  const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
 
+
+  const code = document.getText(CODE_TEXT_KEY);
+
+  // New provider on room id or document change
+  useEffect(() => {
+    provider.setUser(user)
     provider.connect();
 
     return () => {
       provider.destroy();
       document.destroy();
     };
-  }, [roomId, document]);
+  }, [provider, document, user]);
+
+  useEffect(() => {
+    const updateUsers =
+      (): void => {
+        const users: ActiveUser[] = [];
+
+        for (const [clientId, state] of provider.awareness.getStates()) {
+          const rawUser = (
+            state as {
+              user?: {
+                name?: unknown;
+                color?: unknown;
+              }
+            }
+          ).user;
+
+          if (typeof rawUser?.name !== "string" || typeof rawUser?.color !== "string") {
+            continue;
+          }
+
+          users.push({
+            clientId,
+            name: rawUser.name,
+            color: rawUser.color,
+            local: clientId === document.clientID,
+          });
+        }
+
+        setActiveUsers(
+          users.sort(
+            (a, b) => a.name.localeCompare(b.name),
+          )
+        );
+      };
+
+      provider.awareness.on(
+        "change",
+        updateUsers,
+      );
+
+      updateUsers();
+
+      return () => {
+        provider.awareness.off(
+          "change",
+          updateUsers,
+        );
+      };
+  }, [provider, document]);
 
   function resetCode(): void {
     document.transact(
@@ -64,11 +146,33 @@ export function App() {
 
           <span class="room-name">
             Room: {roomId}
-            {" . "}
+            {" - "}
             {status}
-            {" . "}
+            {" - "}
             {connections} connected
           </span>
+
+          <div class="user-list">
+            {activeUsers.map(
+              (activeUser) => (
+                <span
+                  key={activeUser.clientId}
+                  class="user-pill"
+                >
+                  <span
+                    class="user-dot"
+                    style={{
+                      background: activeUser.color,
+                    }}
+                  />
+
+                  {activeUser.name}
+
+                  {activeUser.local && " (you)"}
+                </span>
+              )
+            )}
+          </div>
         </div>
 
         <div class="actions">
@@ -110,37 +214,37 @@ export function App() {
             <h2>
               Example Problem
             </h2>
+          </div>
 
-            <p>
-              Eventually will have real problem description, examples, contraints and tests.
-            </p>
+          <p>
+            Eventually will have real problem description, examples, contraints and tests.
+          </p>
 
-            <h3>
-              Example
-            </h3>
+          <h3>
+            Example
+          </h3>
 
-            <pre>
+          <pre>
 {`Input:
 nums = [2, 7, 11, 15]
 
 Output:
 [0, 1]`}
-            </pre>
+          </pre>
 
-            <h3>
-              Constraints
-            </h3>
+          <h3>
+            Constraints
+          </h3>
 
-            <ul>
-              <li>
-                1 &lt;= nums.length
-              </li>
+          <ul>
+            <li>
+              1 &lt;= nums.length
+            </li>
 
-              <li>
-                Values may be negative
-              </li>
-            </ul>
-          </div>
+            <li>
+              Values may be negative
+            </li>
+          </ul>
         </aside>
 
         <section class="editor-panel">
@@ -152,6 +256,7 @@ Output:
 
           <CodeEditor
             yText={code}
+            awareness={provider.awareness}
             language="cpp"
             readOnly={ status !== "Connected" }
           />

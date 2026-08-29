@@ -2,6 +2,13 @@ import { DurableObject } from "cloudflare:workers";
 import * as Y from "yjs";
 
 import { CODE_TEXT_KEY, STARTER_CODE } from "../shared/editor.ts";
+
+import {
+    MESSAGE_AWARENESS_UPDATE,
+    MESSAGE_DOCUMENT_UPDATE,
+    decodeBinaryMessage,
+    encodeBinaryMessage
+} from "../shared/protocol.ts"
 interface Env {
     ROOMS: DurableObjectNamespace<Room>
 }
@@ -97,7 +104,12 @@ export class Room extends DurableObject<Env> {
 
         // Send complete document
         const documentState = Y.encodeStateAsUpdate(this.ydoc);
-        server.send(this.toArrayBuffer(documentState));
+        server.send(
+            encodeBinaryMessage(
+                MESSAGE_DOCUMENT_UPDATE,
+                documentState,
+            )
+        );
 
         // WebSocket messages preserver order so it has full document
         server.send(
@@ -108,6 +120,10 @@ export class Room extends DurableObject<Env> {
 
         this.broadcastPresence();
 
+        this.broadcastJson({
+            type: "awareness-request"
+        });
+
         return new Response(null, {
             status: 101,
             webSocket: client,
@@ -115,41 +131,63 @@ export class Room extends DurableObject<Env> {
     }
 
     async webSocketMessage(
-        socket: WebSocket, 
+        socket: WebSocket,
         message: string | ArrayBuffer
     ): Promise<void> {
-        // Only accepts binary yJs updates
+        // Only accepts binary updates
         if (typeof message === "string") {
             return;
         }
 
-        try {
-            const update = new Uint8Array(message);
+        const decoded = decodeBinaryMessage(message);
 
-            // Apply change to authoritative document
-            Y.applyUpdate(
-                this.ydoc,
-                update,
+        if (!decoded) {
+            return;
+        }
+
+        if (decoded.type === MESSAGE_DOCUMENT_UPDATE) {
+            try {
+                // Apply change to authoritative document
+                Y.applyUpdate(
+                    this.ydoc,
+                    decoded.payload,
+                    socket,
+                );
+
+                // Persist so it can hibernate
+                await this.persistDocument();
+
+                this.broadcastBinary(
+                    encodeBinaryMessage(
+                        MESSAGE_DOCUMENT_UPDATE,
+                        decoded.payload
+                    ),
+                    socket,
+                );
+            } catch (error) {
+                console.error(
+                    "Invalid Yjs update:",
+                    error,
+                );
+
+                socket.close(
+                    1003,
+                    "Invalid collaboration update",
+                );
+            }
+
+            return;
+        }
+
+        // Temporary user/cursor state
+        if (decoded.type === MESSAGE_AWARENESS_UPDATE) {
+            this.broadcastBinary(
+                encodeBinaryMessage(
+                    MESSAGE_AWARENESS_UPDATE,
+                    decoded.payload,
+                ),
                 socket,
-            );
-
-            // Persist so it can hibernate
-            await this.persistDocument();
-
-            this.broadcastUpdate(
-                update,
-                socket,
-            );
-        } catch (error) {
-            console.error(
-                "Invalid Yjs update:",
-                error,
-            );
-
-            socket.close(
-                1003,
-                "Invalid collaboration update",
-            );
+            )
         }
     }
 
@@ -178,17 +216,25 @@ export class Room extends DurableObject<Env> {
         );
     }
 
-    private broadcastUpdate(
-        update: Uint8Array,
-        sender: WebSocket,
+    private broadcastBinary(
+        message: ArrayBuffer,
+        sender?: WebSocket,
     ): void {
-        const data = this.toArrayBuffer(update);
-
         for (const socket of this.ctx.getWebSockets()) {
-            if (socket === sender) {
+            if (sender && socket === sender) {
                 continue;
             }
 
+            socket.send(message);
+        }
+    }
+
+    private broadcastJson(
+        message: object,
+    ): void {
+        const data = JSON.stringify(message);
+
+        for (const socket of this.ctx.getWebSockets()) {
             socket.send(data);
         }
     }
