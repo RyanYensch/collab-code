@@ -12,9 +12,12 @@
     "preact": "^10.29.8"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.54.2",
+    "@cloudflare/workers-types": "^5.20260829.1",
     "@preact/preset-vite": "^2.10.6",
     "@types/node": "^24.13.3",
     "typescript": "~6.0.2",
-    "vite": "^8.2.2"
+    "vite": "^8.2.2",
+    "wrangler": "4"
   }
 }
