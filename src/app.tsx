@@ -1,104 +1,166 @@
-import { useState } from 'preact/hooks'
-import heroImg from './assets/hero.png'
-import preactLogo from './assets/preact.svg'
-import viteLogo from './assets/vite.svg'
-import './app.css'
+import { useEffect, useRef, useState } from "preact/hooks";
+import "./app.css";
+
+interface RoomEvent {
+  type: string,
+  sessionId?: string,
+  text?: string,
+  connections?: number
+}
 
 export function App() {
-  const [count, setCount] = useState(0)
+  const socketRef = useRef<WebSocket | null>(null);
+
+  const [roomId, setRoomId] = useState("test");
+  const [message, setMessage] = useState("");
+  const [status, setStatus] = useState("Disconnected");
+  const [connections, setConnections] = useState(0);
+  const [events, setEvents] = useState<string[]>([]);
+
+  useEffect(() => {
+    return () => {
+      socketRef.current?.close();
+    };
+  }, []);
+
+  function addEvent(text: string) {
+    setEvents((current) => [
+      ...current.slice(-49),
+      text,
+    ]);
+  }
+
+  function connect() {
+    const cleanRoomId = roomId.trim().toLowerCase();
+
+    if (!/^[a-z0-9_-]{1,64}$/.test(cleanRoomId)) {
+      addEvent("Invalid Room ID");
+      return;
+    }
+
+    socketRef.current?.close();
+
+    const protocol = window.location.protocol === "https: " ? "wss" : "ws";
+
+    const socket = new WebSocket(`${protocol}://${window.location.host}/ws/rooms/${cleanRoomId}`);
+
+    socketRef.current = socket;
+
+    setStatus("Connecting...");
+
+    socket.addEventListener("open", () => {
+      setStatus("Connected");
+      addEvent(`Joined room "${cleanRoomId}"`);
+    });
+
+    socket.addEventListener("message", (event) => {
+      const data = JSON.parse(event.data) as RoomEvent;
+
+      if (typeof data.connections === "number") {
+        setConnections(data.connections);
+      }
+
+      if (data.type === "message" && data.text && data.sessionId) {
+        addEvent(`${data.sessionId.slice(0, 8)}: ${data.text}`);
+      }
+    });
+
+    socket.addEventListener("close", () => {
+      setStatus("Disconnected");
+      setConnections(0);
+    });
+
+    socket.addEventListener("error", () => {
+      addEvent("WebSocket error");
+    });
+  }
+
+  function sendMessage() {
+    const socket = socketRef.current;
+
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      addEvent("Not Connected");
+      return;
+    }
+
+    const text = message.trim();
+
+    if (!text) {
+      return;
+    }
+
+    socket.send(text);
+
+    setMessage("");
+  }
+
 
   return (
-    <>
-      <section id="center">
-        <div class="hero">
-          <img src={heroImg} class="base" width="170" height="179" alt="" />
-          <img src={preactLogo} class="framework" alt="Preact logo" />
-          <img src={viteLogo} class="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/app.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          class="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <main class="app">
+      <h1>Collab Code</h1>
 
-      <div class="ticks"></div>
+      <p>
+        Durable object room communication test
+      </p>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg class="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img class="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://preactjs.com/" target="_blank">
-                <img class="button-icon" src={preactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg class="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg class="button-icon" role="presentation" aria-hidden="true">
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg class="button-icon" role="presentation" aria-hidden="true">
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg class="button-icon" role="presentation" aria-hidden="true">
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg class="button-icon" role="presentation" aria-hidden="true">
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
+      <section>
+        <label for="room">Room</label>
+
+        <div class="row">
+          <input
+            id="room"
+            value={roomId}
+            onInput={(event) => {
+              setRoomId(event.currentTarget.value);
+            }} />
+
+          <button onClick={connect}>
+            Join Room
+          </button>
         </div>
       </section>
 
-      <div class="ticks"></div>
-      <section id="spacer"></section>
-    </>
+      <section>
+        <p>
+          Status: <strong>{status}</strong>
+        </p>
+
+        <p>
+          Connected users: <strong>{connections}</strong>
+        </p>
+      </section>
+
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          sendMessage();
+        }}
+      >
+        <label for="message">Message</label>
+
+        <div class="row">
+          <input
+            id="message"
+            value={message}
+            onInput={(event) => {
+              setMessage(event.currentTarget.value);
+            }}
+          />
+
+          <button type="submit">
+            Send
+          </button>
+        </div>
+
+      </form>
+
+      <section>
+        <h2>Room Events</h2>
+
+        <pre>
+          {events.length ? events.join("\n") : "No Events Yet."}
+        </pre>
+      </section>
+    </main>
   )
 }
