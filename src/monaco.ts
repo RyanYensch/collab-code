@@ -1,4 +1,6 @@
-import * as monaco from 'monaco-editor'
+import * as monaco from 'monaco-editor/editor'
+import 'monaco-editor/features/register.all'
+import 'monaco-editor/languages/definitions/cpp/register'
 import EditorWorker from 'monaco-editor/editor/editor.worker.js?worker'
 
 declare global {

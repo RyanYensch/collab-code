@@ -1,30 +1,31 @@
 import { useEffect, useRef } from "preact/hooks";
+import { MonacoBinding } from "y-monaco";
+import * as Y from "yjs";
 import { monaco } from "../monaco";
 
 interface CodeEditorProps {
-    value: string;
+    yText: Y.Text;
     language?: string;
-    onChange?: (value: string) => void;
+    readOnly?: boolean;
 }
 
 export function CodeEditor({
-    value,
+    yText,
     language = "cpp",
-    onChange,
+    readOnly = false,
 }: CodeEditorProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
     const modelRef = useRef<monaco.editor.ITextModel | null>(null);
-    const onChangeRef = useRef(onChange);
 
-    // Create Monaco once on mount
+    // Create Monaco and bind to Yjs
     useEffect(() => {
         if (!containerRef.current) {
             return;
         }
 
         const model = monaco.editor.createModel(
-            value,
+            "",
             language,
         );
 
@@ -43,30 +44,32 @@ export function CodeEditor({
                 },
                 scrollBeyondLastLine: false,
                 wordWrap: "off",
+                readOnly,
                 padding: {
                     top: 12,
                 },
             },
         );
 
+        const binding = new MonacoBinding(
+            yText,
+            model,
+            new Set([editor])
+        );
+
         editorRef.current = editor;
         modelRef.current = model;
 
-        const changeListener = model.onDidChangeContent(() => {
-            onChangeRef.current?.(
-                model.getValue(),
-            );
-        });
 
         // Remove monaco resouce
         return () => {
-            changeListener.dispose();
+            binding.destroy()
             editor.dispose();
             model.dispose();
             editorRef.current = null;
             modelRef.current = null;
         }
-    }, []);
+    }, [yText]);
 
     // Allow language change
     useEffect(() => {
@@ -81,18 +84,12 @@ export function CodeEditor({
         }
     }, [language]);
 
-    // Allow external source to modify
+    // lock until downloaded
     useEffect(() => {
-        const model = modelRef.current;
-
-        if (!model) {
-            return;
-        }
-
-        if (model.getValue() !== value) {
-            model.setValue(value);
-        }
-    }, [value]);
+        editorRef.current?.updateOptions({
+            readOnly,
+        })
+    }, [readOnly]);
 
     return (
         <div

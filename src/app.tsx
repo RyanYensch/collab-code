@@ -1,188 +1,60 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
+import * as Y from "yjs";
 import { CodeEditor } from "./components/CodeEditor";
+import { RoomProvider, type RoomConnectionStatus } from "./collaboration/RoomProvider";
+import { CODE_TEXT_KEY, STARTER_CODE } from "../shared/editor";
 import "./app.css";
 
-const starterCode = `#include <iostream>
-#include <vector>
+function getInitialRoomId(): string {
+  const params = new URLSearchParams(
+    window.location.search,
+  );
 
-using namespace std;
+  const requestedRoom = params.get("room")?.trim().toLowerCase();
 
-class Solution {
-public:
-    vector<int> solve(vector<int>& nums) {
+  if (requestedRoom && /^[a-zA-Z0-9_-]{1,64}$/.test(requestedRoom)) {
+    return requestedRoom;
+  }
 
-    }
-};
-`
-
-
-// interface RoomEvent {
-//   type: string,
-//   sessionId?: string,
-//   text?: string,
-//   connections?: number
-// }
-
-// export function App() {
-//   const socketRef = useRef<WebSocket | null>(null);
-
-//   const [roomId, setRoomId] = useState("test");
-//   const [message, setMessage] = useState("");
-//   const [status, setStatus] = useState("Disconnected");
-//   const [connections, setConnections] = useState(0);
-//   const [events, setEvents] = useState<string[]>([]);
-
-//   useEffect(() => {
-//     return () => {
-//       socketRef.current?.close();
-//     };
-//   }, []);
-
-//   function addEvent(text: string) {
-//     setEvents((current) => [
-//       ...current.slice(-49),
-//       text,
-//     ]);
-//   }
-
-//   function connect() {
-//     const cleanRoomId = roomId.trim().toLowerCase();
-
-//     if (!/^[a-z0-9_-]{1,64}$/.test(cleanRoomId)) {
-//       addEvent("Invalid Room ID");
-//       return;
-//     }
-
-//     socketRef.current?.close();
-
-//     const protocol = window.location.protocol === "https: " ? "wss" : "ws";
-
-//     const socket = new WebSocket(`${protocol}://${window.location.host}/ws/rooms/${cleanRoomId}`);
-
-//     socketRef.current = socket;
-
-//     setStatus("Connecting...");
-
-//     socket.addEventListener("open", () => {
-//       setStatus("Connected");
-//       addEvent(`Joined room "${cleanRoomId}"`);
-//     });
-
-//     socket.addEventListener("message", (event) => {
-//       const data = JSON.parse(event.data) as RoomEvent;
-
-//       if (typeof data.connections === "number") {
-//         setConnections(data.connections);
-//       }
-
-//       if (data.type === "message" && data.text && data.sessionId) {
-//         addEvent(`${data.sessionId.slice(0, 8)}: ${data.text}`);
-//       }
-//     });
-
-//     socket.addEventListener("close", () => {
-//       setStatus("Disconnected");
-//       setConnections(0);
-//     });
-
-//     socket.addEventListener("error", () => {
-//       addEvent("WebSocket error");
-//     });
-//   }
-
-//   function sendMessage() {
-//     const socket = socketRef.current;
-
-//     if (!socket || socket.readyState !== WebSocket.OPEN) {
-//       addEvent("Not Connected");
-//       return;
-//     }
-
-//     const text = message.trim();
-
-//     if (!text) {
-//       return;
-//     }
-
-//     socket.send(text);
-
-//     setMessage("");
-//   }
-
-
-//   return (
-//     <main class="app">
-//       <h1>Collab Code</h1>
-
-//       <p>
-//         Durable object room communication test
-//       </p>
-
-//       <section>
-//         <label for="room">Room</label>
-
-//         <div class="row">
-//           <input
-//             id="room"
-//             value={roomId}
-//             onInput={(event) => {
-//               setRoomId(event.currentTarget.value);
-//             }} />
-
-//           <button onClick={connect}>
-//             Join Room
-//           </button>
-//         </div>
-//       </section>
-
-//       <section>
-//         <p>
-//           Status: <strong>{status}</strong>
-//         </p>
-
-//         <p>
-//           Connected users: <strong>{connections}</strong>
-//         </p>
-//       </section>
-
-//       <form
-//         onSubmit={(event) => {
-//           event.preventDefault();
-//           sendMessage();
-//         }}
-//       >
-//         <label for="message">Message</label>
-
-//         <div class="row">
-//           <input
-//             id="message"
-//             value={message}
-//             onInput={(event) => {
-//               setMessage(event.currentTarget.value);
-//             }}
-//           />
-
-//           <button type="submit">
-//             Send
-//           </button>
-//         </div>
-
-//       </form>
-
-//       <section>
-//         <h2>Room Events</h2>
-
-//         <pre>
-//           {events.length ? events.join("\n") : "No Events Yet."}
-//         </pre>
-//       </section>
-//     </main>
-//   )
-// }
+  return "test";
+}
 
 
 export function App() {
-  const [code, setCode] = useState(starterCode);
+  const [roomId] = useState(getInitialRoomId);
+  const [document] = useState(() => new Y.Doc());
+  const [status, setStatus] = useState<RoomConnectionStatus>("Connecting");
+  const [connections, setConnections] = useState(0);
+  const code = document.getText(CODE_TEXT_KEY);
+
+  // New provider on room id or document change
+  useEffect(() => {
+    const provider = new RoomProvider(
+      roomId,
+      document,
+      {
+        onStatusChange: setStatus,
+        onConnectionsChange: setConnections,
+      },
+    );
+
+    provider.connect();
+
+    return () => {
+      provider.destroy();
+      document.destroy();
+    };
+  }, [roomId, document]);
+
+  function resetCode(): void {
+    document.transact(
+      () => {
+        code.delete(0, code.length);
+        code.insert(0, STARTER_CODE);
+      },
+      "reset",
+    );
+  }
 
   return (
     <main class="app">
@@ -191,20 +63,25 @@ export function App() {
           <h1>Collab Code</h1>
 
           <span class="room-name">
-            Local Editor
+            Room: {roomId}
+            {" . "}
+            {status}
+            {" . "}
+            {connections} connected
           </span>
         </div>
 
         <div class="actions">
-          <span class="languages">
+          <span class="language">
             C++20
           </span>
 
           <button
             type="button"
-            onClick={() => {
-              setCode(starterCode);
-            }}
+            disabled={
+              status !== "Connected"
+            }
+            onClick={resetCode}
           >
             Reset
           </button>
@@ -212,7 +89,7 @@ export function App() {
           <button
             type="button"
             disabled
-            title="Code execution not implemented"
+            title="Code Execution To Be Implemented"
           >
             Run
           </button>
@@ -229,35 +106,41 @@ export function App() {
             <span class="difficulty">
               Easy
             </span>
-          </div>
 
-          <h2>Example Problem</h2>
+            <h2>
+              Example Problem
+            </h2>
 
-          <p>
-            Eventually will contain problem description, examples, constaints, and test cases.
-          </p>
+            <p>
+              Eventually will have real problem description, examples, contraints and tests.
+            </p>
 
-          <h3>Example</h3>
+            <h3>
+              Example
+            </h3>
 
-          <pre>
+            <pre>
 {`Input:
 nums = [2, 7, 11, 15]
 
 Output:
 [0, 1]`}
-          </pre>
+            </pre>
 
-          <h3>Contstaints</h3>
+            <h3>
+              Constraints
+            </h3>
 
-          <ul>
-            <li>
-              {`1 <= nums.length <= 10000`}
-            </li>
+            <ul>
+              <li>
+                1 &lt;= nums.length
+              </li>
 
-            <li>
-              {`Values may be negative`}
-            </li>
-          </ul>
+              <li>
+                Values may be negative
+              </li>
+            </ul>
+          </div>
         </aside>
 
         <section class="editor-panel">
@@ -268,9 +151,9 @@ Output:
           </div>
 
           <CodeEditor
-            value={code}
+            yText={code}
             language="cpp"
-            onChange={setCode}
+            readOnly={ status !== "Connected" }
           />
         </section>
       </section>

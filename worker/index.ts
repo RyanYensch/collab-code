@@ -1,5 +1,7 @@
-import { DurableObject } from 'cloudflare:workers'
+import { DurableObject } from "cloudflare:workers";
+import * as Y from "yjs";
 
+import { CODE_TEXT_KEY, STARTER_CODE } from "../shared/editor.ts";
 interface Env {
     ROOMS: DurableObjectNamespace<Room>
 }
@@ -8,8 +10,12 @@ interface Session {
     id: string
 }
 
+const DOCUMENT_STORAGE_KEY = "yjs-document";
+
 export class Room extends DurableObject<Env> {
     private sessions = new Map<WebSocket, Session>();
+
+    private readonly ydoc = new Y.Doc();
 
     constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env);
@@ -26,6 +32,35 @@ export class Room extends DurableObject<Env> {
         this.ctx.setWebSocketAutoResponse(
             new WebSocketRequestResponsePair("ping", "pong"),
         );
+
+        // Restore Yjs document from durable object storage
+        // Block other requests during initialisation
+        this.ctx.blockConcurrencyWhile(
+            async () => {
+                const stored = await this.ctx.storage.get<ArrayBuffer>(
+                    DOCUMENT_STORAGE_KEY
+                );
+
+                if (stored) {
+                    Y.applyUpdate(
+                        this.ydoc,
+                        new Uint8Array(stored),
+                        "storage"
+                    );
+
+                    return;
+                }
+
+                // New room
+                const code = this.ydoc.getText(
+                    CODE_TEXT_KEY,
+                );
+
+                code.insert(0, STARTER_CODE);
+
+                await this.persistDocument();
+            }
+        )
     }
 
     async fetch(request: Request): Promise<Response> {
@@ -60,10 +95,18 @@ export class Room extends DurableObject<Env> {
             })
         );
 
-        this.broadcast({
-            type: "presence",
-            connections: this.sessions.size,
-        });
+        // Send complete document
+        const documentState = Y.encodeStateAsUpdate(this.ydoc);
+        server.send(this.toArrayBuffer(documentState));
+
+        // WebSocket messages preserver order so it has full document
+        server.send(
+            JSON.stringify({
+                type: "synced"
+            })
+        );
+
+        this.broadcastPresence();
 
         return new Response(null, {
             status: 101,
@@ -75,39 +118,101 @@ export class Room extends DurableObject<Env> {
         socket: WebSocket, 
         message: string | ArrayBuffer
     ): Promise<void> {
-        const session = this.sessions.get(socket) ?? (socket.deserializeAttachment() as Session);
+        // Only accepts binary yJs updates
+        if (typeof message === "string") {
+            return;
+        }
 
-        const text = typeof message === "string" ? message : new TextDecoder().decode(message);
+        try {
+            const update = new Uint8Array(message);
 
-        this.broadcast({
-            type: "message",
-            sessionId: session.id,
-            text,
-            connections: this.sessions.size,
-        });
+            // Apply change to authoritative document
+            Y.applyUpdate(
+                this.ydoc,
+                update,
+                socket,
+            );
+
+            // Persist so it can hibernate
+            await this.persistDocument();
+
+            this.broadcastUpdate(
+                update,
+                socket,
+            );
+        } catch (error) {
+            console.error(
+                "Invalid Yjs update:",
+                error,
+            );
+
+            socket.close(
+                1003,
+                "Invalid collaboration update",
+            );
+        }
     }
 
     async webSocketClose(
         socket: WebSocket,
-        code: number,
-        reason: string
+        _code: number,
+        _reason: string
     ): Promise<void> {
         this.sessions.delete(socket);
-
-        this.broadcast({
-            type: "presence",
-            connections: this.sessions.size,
-        });
-
-        socket.close(code, reason);
+        this.broadcastPresence();
     }
 
-    private broadcast(message: object): void {
-        const data = JSON.stringify(message);
+    async webSocketError(
+        socket: WebSocket,
+    ): Promise<void> {
+        this.sessions.delete(socket);
+        this.broadcastPresence();
+    }
+
+    private async persistDocument(): Promise<void> {
+        const state = Y.encodeStateAsUpdate(this.ydoc);
+
+        await this.ctx.storage.put(
+            DOCUMENT_STORAGE_KEY,
+            this.toArrayBuffer(state),
+        );
+    }
+
+    private broadcastUpdate(
+        update: Uint8Array,
+        sender: WebSocket,
+    ): void {
+        const data = this.toArrayBuffer(update);
 
         for (const socket of this.ctx.getWebSockets()) {
+            if (socket === sender) {
+                continue;
+            }
+
             socket.send(data);
         }
+    }
+
+    private broadcastPresence(): void {
+        const message =
+            JSON.stringify({
+                type: "presence",
+                connections: this.sessions.size,
+            });
+
+        for (const socket of this.ctx.getWebSockets()) {
+            socket.send(message);
+        }
+    }
+
+    private toArrayBuffer(
+        value: Uint8Array,
+    ): ArrayBuffer {
+        // Same size copy roather than rely on buffer bounds
+        const copy = new Uint8Array(value.byteLength);
+        copy.set(value);
+
+        return copy.buffer;
     }
 }
 
