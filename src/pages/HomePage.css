@@ -1,0 +1,96 @@
+.home-page {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 2rem;
+    background: #181818;
+    color: #f5f5f5;
+}
+
+.home-card {
+    width: min(480px, 100%);
+    padding: 2rem;
+    border: 1px solid #333;
+    border-radius: 8px;
+    background: #202020;
+}
+
+.home-header {
+    margin-bottom: 2rem;
+    text-align: center;
+}
+
+.home-header h1 {
+    margin: 0;
+    font-size: 2rem;
+}
+
+.home-header p {
+    margin: 0.6rem 0 0;
+    color: #aaa;
+}
+
+.create-room h2,
+.join-room h2 {
+    margin-top: 0;
+    font-size: 1.1rem;
+}
+
+.create-room p {
+    color: #aaa;
+    line-height: 1.5;
+}
+
+.primary-button {
+    width: 100%;
+    margin-top: 0.5rem;
+    padding: 0.8rem 1rem;
+    font-weight: 600;
+}
+
+.home-divider::before,
+.home-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: #333;
+}
+
+.join-room label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: #bbb;
+    font-size: 0.85rem;
+}
+
+.join-row {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.join-row input:focus {
+    border-color: #777;
+}
+
+.room-error {
+    margin: 0.6rem 0 0;
+    color: #e57373;
+}
+
+@media (
+    max-width: 500px
+) {
+    .home-page {
+        align-items: flex-start;
+        padding: 1rem;
+    }
+
+    .home-card {
+        padding: 1.3rem;
+    }
+
+    .join-row {
+        flex-direction: column;
+    }
+}
