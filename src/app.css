@@ -1,7 +1,10 @@
 .app {
+  display: flex;
+  flex-direction: column;
   width: min(800px, 90%);
   margin: 4rem auto;
-  font-family: sans-serif;
+  font-family:
+    Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
 }
 
 section,
@@ -25,8 +28,21 @@ input {
 }
 
 button {
-  padding: 0.75rem 1rem;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #2b2b2b;
+  color: #eee;
   cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #383838;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 pre {
@@ -35,4 +51,155 @@ pre {
   background: #111;
   color: #eee;
   overflow: auto;
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 1.2rem;
+  border-bottom: 1px solid #333;
+  background: #202020;
+}
+
+.top-bar h1 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.room-name {
+  display: block;
+  margin-top: 0.2rem;
+  color: #999;
+  font-size: 0.8rem;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.language {
+  padding: 0.45rem 0.7rem;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #ccc;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns:
+    minmax(300px, 40%)
+    minmax(0, 60%);
+  flex: 1;
+  min-height: 0;
+}
+
+.problem-panel {
+  overflow: auto;
+  padding: 1.5rem;
+  border-right: 1px solid #333;
+}
+
+.problem-panel h2 {
+  margin-top: 0.7rem;
+}
+
+.problem-panel h3 {
+  margin-top: 2rem;
+  font-size: 1rem;
+}
+
+.problem-panel p,
+.problem-panel li {
+  color: #ccc;
+  line-height: 1.6;
+}
+
+.problem-panel pre {
+  padding: 1rem;
+  overflow: auto;
+  border-radius: 5px;
+  background: #111;
+  color: #ddd;
+}
+
+.problem-header {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.problem-number {
+  color: #aaa;
+  font-size: 0.85rem;
+}
+
+.difficulty {
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+  background: #193c2a;
+  color: #76dba2;
+  font-size: 0.8rem;
+}
+
+.editor-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.file-tabs {
+  height: 38px;
+  display: flex;
+  align-items: stretch;
+  background: #202020;
+  border-bottom: 1px solid #333;
+}
+
+.file-tab {
+  display: flex;
+  align-items: center;
+  padding: 0 1rem;
+  color: #aaa;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.file-tab.active {
+  border-top: 2px solid #777;
+  background: #1e1e1e;
+  color: #eee;
+}
+
+.code-editor {
+  flex: 1;
+  min-height: 600px;
+}
+
+
+@media (max-width: 800px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .problem-panel {
+    border-radius: 0;
+    border-bottom: 1px solid #333;
+  }
+
+  .code-editor {
+    min-height: 500px;
+  }
+
+  .top-bar {
+    align-items: center;
+    flex-direction: column;
+  }
 }
